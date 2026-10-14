@@ -43,7 +43,8 @@
 </head>
 <body>
   <h1 id="title">claim-worker relationship graph</h1>
-  <div id="status">Waiting for LangSmith postMessage data&hellip;
+  <div id="status">
+    <span id="status-text">Waiting for LangSmith postMessage data&hellip;</span>
     <button id="demo-output-btn" class="demo-btn" type="button">Load demo output</button>
     <button id="demo-reference-btn" class="demo-btn" type="button">Load demo reference</button>
   </div>
@@ -61,19 +62,10 @@
   // renders whichever single dataset it was given, with no cross-panel diff.
   var state = { kind: null, data: null, inputs: null };
 
-  // DEBUG: record every raw "message" event this window ever receives,
-  // regardless of shape, so we can tell "zero events ever arrive" apart
-  // from "events arrive but don't match our expected {type, data, metadata}"
-  // shape. Capped so a chatty parent frame can't blow up memory.
-  var rawEvents = [];
-
   window.addEventListener("message", function (event) {
-    if (rawEvents.length < 20) {
-      rawEvents.push({ origin: event.origin, data: event.data });
-    }
     var msg = event.data;
-    if (!msg || typeof msg !== "object" || !msg.type) { render(); return; }
-    if (msg.type !== "output" && msg.type !== "reference") { render(); return; }
+    if (!msg || typeof msg !== "object" || !msg.type) return;
+    if (msg.type !== "output" && msg.type !== "reference") return;
     state.kind = msg.type;
     state.data = msg.data;
     if (msg.metadata && msg.metadata.inputs) state.inputs = msg.metadata.inputs;
@@ -82,9 +74,7 @@
   });
 
   function setStatus(text) {
-    document.getElementById("status").textContent = text + " ";
-    document.getElementById("status").appendChild(document.getElementById("demo-output-btn"));
-    document.getElementById("status").appendChild(document.getElementById("demo-reference-btn"));
+    document.getElementById("status-text").textContent = text;
   }
 
   var DEMO_INPUTS = {
@@ -248,18 +238,6 @@
     if (!claimIds.length) {
       svg.appendChild(el("text", { x: 16, y: 28, "class": "node-label" })).textContent =
         "No inputs.claims received yet -- click a demo button above, or point this page at a real dataset example.";
-      // DEBUG: dump exactly what this page has received so far, so we can
-      // see the real shape LangSmith sends in this view instead of guessing.
-      var dump = el("foreignObject", { x: 16, y: 40, width: width - 32, height: height - 56 });
-      var pre = document.createElement("pre");
-      pre.style.cssText = "font-size:10px; white-space:pre-wrap; word-break:break-all; color:#374151; margin:0;";
-      pre.textContent = "raw \"message\" events received (any shape): " + rawEvents.length + "\n" +
-        JSON.stringify(rawEvents, null, 2) + "\n\n" +
-        "state.kind: " + JSON.stringify(state.kind) + "\n" +
-        "state.inputs: " + JSON.stringify(state.inputs, null, 2) + "\n" +
-        "state.data: " + JSON.stringify(state.data, null, 2);
-      dump.appendChild(pre);
-      svg.appendChild(dump);
       renderSummary([]);
       return;
     }
