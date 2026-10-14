@@ -239,6 +239,16 @@
     if (!claimIds.length) {
       svg.appendChild(el("text", { x: 16, y: 28, "class": "node-label" })).textContent =
         "No inputs.claims received yet -- click a demo button above, or point this page at a real dataset example.";
+      // DEBUG: dump exactly what this page has received so far, so we can
+      // see the real shape LangSmith sends in this view instead of guessing.
+      var dump = el("foreignObject", { x: 16, y: 40, width: width - 32, height: height - 56 });
+      var pre = document.createElement("pre");
+      pre.style.cssText = "font-size:10px; white-space:pre-wrap; word-break:break-all; color:#374151; margin:0;";
+      pre.textContent = "state.kind: " + JSON.stringify(state.kind) + "\n" +
+        "state.inputs: " + JSON.stringify(state.inputs, null, 2) + "\n" +
+        "state.data: " + JSON.stringify(state.data, null, 2);
+      dump.appendChild(pre);
+      svg.appendChild(dump);
       renderSummary([]);
       return;
     }
