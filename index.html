@@ -2,18 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>claim-worker relationship diff</title>
+<title>claim-worker relationship graph</title>
 <style>
-  :root {
-    --correct: #22c55e;
-    --missing: #ef4444;
-    --violation: #dc2626;
-    --extra: #9ca3af;
-    --claim-fill: #dbeafe;
-    --claim-stroke: #2563eb;
-    --stressor-fill: #ede9fe;
-    --stressor-stroke: #7c3aed;
-  }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     margin: 0;
@@ -28,6 +18,7 @@
     flex-wrap: wrap;
     font-size: 13px;
     margin-bottom: 10px;
+    color: #374151;
   }
   #summary span { white-space: nowrap; }
   .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; }
@@ -36,13 +27,14 @@
     color: #6b7280;
     margin-bottom: 8px;
   }
-  #demo-btn {
+  .demo-btn {
     font-size: 12px;
     padding: 3px 8px;
     border: 1px solid #d1d5db;
     border-radius: 4px;
     background: #fff;
     cursor: pointer;
+    margin-right: 6px;
   }
   svg { background: #fff; border: 1px solid #e5e7eb; border-radius: 6px; }
   .node-label { font-size: 11px; fill: #111827; pointer-events: none; }
@@ -50,9 +42,10 @@
 </style>
 </head>
 <body>
-  <h1>claim-worker relationship diff (actual vs. reference)</h1>
+  <h1 id="title">claim-worker relationship graph</h1>
   <div id="status">Waiting for LangSmith postMessage data&hellip;
-    <button id="demo-btn" type="button">Load demo data</button>
+    <button id="demo-output-btn" class="demo-btn" type="button">Load demo output</button>
+    <button id="demo-reference-btn" class="demo-btn" type="button">Load demo reference</button>
   </div>
   <div id="summary"></div>
   <svg id="graph" width="760" height="520"></svg>
@@ -61,74 +54,61 @@
 (function () {
   "use strict";
 
-  // Latest message of each type received so far. LangSmith retries delivery
-  // (up to 6x, exponential backoff) and sends "output"/"reference" as
-  // separate events -- we hold onto whichever has arrived and re-render
-  // every time a new one comes in, rather than requiring both up front.
-  var received = { output: null, reference: null, inputs: null };
+  // IMPORTANT: LangSmith's "Output" and "Reference Outputs" panels each load
+  // this page as an INDEPENDENT iframe. Each instance only ever receives ONE
+  // message type ("output" XOR "reference") -- the two panels do not share a
+  // JS context, so this page can never see both together. It therefore just
+  // renders whichever single dataset it was given, with no cross-panel diff.
+  var state = { kind: null, data: null, inputs: null };
 
   window.addEventListener("message", function (event) {
     var msg = event.data;
     if (!msg || typeof msg !== "object" || !msg.type) return;
-    if (msg.type === "output") received.output = msg.data;
-    else if (msg.type === "reference") received.reference = msg.data;
-    if (msg.metadata && msg.metadata.inputs) received.inputs = msg.metadata.inputs;
-    setStatus(
-      "Received " + msg.type + " message" +
-      (received.output ? " \u2713output" : "") +
-      (received.reference ? " \u2713reference" : "")
-    );
+    if (msg.type !== "output" && msg.type !== "reference") return;
+    state.kind = msg.type;
+    state.data = msg.data;
+    if (msg.metadata && msg.metadata.inputs) state.inputs = msg.metadata.inputs;
+    setStatus("Received " + msg.type + " message");
     render();
   });
 
   function setStatus(text) {
-    var btn = document.getElementById("demo-btn");
     document.getElementById("status").textContent = text + " ";
-    document.getElementById("status").appendChild(btn);
+    document.getElementById("status").appendChild(document.getElementById("demo-output-btn"));
+    document.getElementById("status").appendChild(document.getElementById("demo-reference-btn"));
   }
 
-  // ---- demo data (mirrors eval_data/claim_worker_relationships/tire_sidewall_duplicate_stressor.yaml) ----
-  document.getElementById("demo-btn").addEventListener("click", function () {
-    received.inputs = {
-      claims: {
-        "C-001": {
-          subject_node_name: "Sidewall",
-          statement: "Cyclic flexing of the tire sidewall nucleates micro-cracks at the filler/matrix interface.",
-          conditions: ["sidewall flexed at high frequency", "ambient temperature below 0 C"]
-        },
-        "C-002": {
-          subject_node_name: "Sidewall",
-          statement: "Repeated bending of the sidewall nucleates micro-cracks where filler meets the matrix.",
-          conditions: ["sidewall bent repeatedly", "sub-freezing ambient temperature"]
-        },
-        "C-003": {
-          subject_node_name: "Tread",
-          statement: "Prolonged UV exposure oxidizes the tread rubber surface, increasing stiffness.",
-          conditions: ["prolonged UV exposure", "outdoor storage"]
-        }
+  var DEMO_INPUTS = {
+    claims: {
+      "C-001": {
+        subject_node_name: "Sidewall",
+        statement: "Cyclic flexing of the tire sidewall nucleates micro-cracks at the filler/matrix interface.",
+        conditions: ["sidewall flexed at high frequency", "ambient temperature below 0 C"]
       },
-      stressors: {
-        "stressor:cold-ambient": {
-          name: "Cold ambient temperature",
-          description: "Sub-freezing air temperature encountered during winter rides."
-        }
+      "C-002": {
+        subject_node_name: "Sidewall",
+        statement: "Repeated bending of the sidewall nucleates micro-cracks where filler meets the matrix.",
+        conditions: ["sidewall bent repeatedly", "sub-freezing ambient temperature"]
+      },
+      "C-003": {
+        subject_node_name: "Tread",
+        statement: "Prolonged UV exposure oxidizes the tread rubber surface, increasing stiffness.",
+        conditions: ["prolonged UV exposure", "outdoor storage"]
       }
-    };
-    received.reference = {
-      expected: {
-        duplicates: [["C-001", "C-002"]],
-        must_not_merge: [],
-        causes: [],
-        is_subset_of: [],
-        must_not_link: [["C-002", "C-003"]],
-        stressor_supplies: [{ stressor_id: "stressor:cold-ambient", claim_id_any_of: ["C-001", "C-002"] }]
+    },
+    stressors: {
+      "stressor:cold-ambient": {
+        name: "Cold ambient temperature",
+        description: "Sub-freezing air temperature encountered during winter rides."
       }
-    };
-    // A simulated ACTUAL run: correctly found the duplicate, correctly
-    // avoided linking C-002/C-003, supplied the stressor to C-001 only
-    // (misses C-002 as an acceptable alternative target -- still "correct"
-    // per claim_id_any_of), and threw in one unscored extra relationship.
-    received.output = {
+    }
+  };
+
+  // ---- demo data (mirrors eval_data/claim_worker_relationships/tire_sidewall_duplicate_stressor.yaml) ----
+  document.getElementById("demo-output-btn").addEventListener("click", function () {
+    state.inputs = DEMO_INPUTS;
+    state.kind = "output";
+    state.data = {
       status: "complete",
       total_tool_calls: 3,
       meta_claims: [
@@ -138,7 +118,7 @@
         },
         {
           meta_claim_id: "mc-2", claim_a_id: "C-001", claim_b_id: "C-003", relationship: "is_subset_of",
-          statement: "Not actually scored by this case's answer key.", reasoning: "Included to demonstrate an 'extra' (unscored) edge."
+          statement: "Agent-proposed relationship.", reasoning: "Shown exactly as the agent recorded it -- this page has no answer key to grade it against."
         }
       ],
       stressor_edges: [
@@ -148,97 +128,72 @@
         }
       ]
     };
-    setStatus("Loaded demo data");
+    setStatus("Loaded demo output");
     render();
   });
 
-  // ---- diff logic (mirrors trc/evals/langsmith_eval.py's _relationships_correct / _stressor_supplies_correct) ----
-
-  function pairKey(a, b) {
-    return [a, b].sort().join("|");
-  }
-
-  function computeDiff() {
-    var meta = (received.output && received.output.meta_claims) || [];
-    var stressorEdges = (received.output && received.output.stressor_edges) || [];
-    var expected = (received.reference && received.reference.expected) || {};
-
-    var directed = {};
-    var duplicatePairs = {};
-    var anyLinkedPairs = {};
-    meta.forEach(function (m) {
-      directed[m.claim_a_id + ">>" + m.claim_b_id + ">>" + m.relationship] = true;
-      var k = pairKey(m.claim_a_id, m.claim_b_id);
-      anyLinkedPairs[k] = true;
-      if (m.relationship === "duplicates") duplicatePairs[k] = true;
-    });
-
-    var covered = {}; // pairKey or directed-key already drawn by an expected check
-    var edges = [];
-
-    (expected.duplicates || []).forEach(function (pair) {
-      var k = pairKey(pair[0], pair[1]);
-      covered[k] = true;
-      edges.push({ a: pair[0], b: pair[1], rel: "duplicates", directed: false, status: duplicatePairs[k] ? "correct" : "missing" });
-    });
-    (expected.must_not_merge || []).forEach(function (pair) {
-      var k = pairKey(pair[0], pair[1]);
-      covered[k] = true;
-      if (duplicatePairs[k]) edges.push({ a: pair[0], b: pair[1], rel: "must_not_merge", directed: false, status: "violation" });
-    });
-    (expected.causes || []).forEach(function (rel) {
-      var dk = rel.claim_a_id + ">>" + rel.claim_b_id + ">>causes";
-      covered[dk] = true;
-      edges.push({ a: rel.claim_a_id, b: rel.claim_b_id, rel: "causes", directed: true, status: directed[dk] ? "correct" : "missing" });
-    });
-    (expected.is_subset_of || []).forEach(function (rel) {
-      var dk = rel.claim_a_id + ">>" + rel.claim_b_id + ">>is_subset_of";
-      covered[dk] = true;
-      edges.push({ a: rel.claim_a_id, b: rel.claim_b_id, rel: "is_subset_of", directed: true, status: directed[dk] ? "correct" : "missing" });
-    });
-    (expected.must_not_link || []).forEach(function (pair) {
-      var k = pairKey(pair[0], pair[1]);
-      covered[k] = true;
-      if (anyLinkedPairs[k]) edges.push({ a: pair[0], b: pair[1], rel: "must_not_link", directed: false, status: "violation" });
-    });
-
-    // Anything the agent recorded that none of the expected checks above
-    // already drew -- shown as neutral/"extra" so it's visible but not
-    // scored, matching the fact the Python scorer never looks at it either.
-    meta.forEach(function (m) {
-      var k = pairKey(m.claim_a_id, m.claim_b_id);
-      var dk = m.claim_a_id + ">>" + m.claim_b_id + ">>" + m.relationship;
-      if (covered[k] || covered[dk]) return;
-      edges.push({ a: m.claim_a_id, b: m.claim_b_id, rel: m.relationship, directed: m.relationship !== "duplicates", status: "extra" });
-    });
-
-    // Stressor-supply edges.
-    var stressorEdgeList = [];
-    var stressorCovered = {};
-    (expected.stressor_supplies || []).forEach(function (supply) {
-      var candidates = supply.claim_id_any_of || [];
-      var hit = stressorEdges.find(function (e) {
-        return e.stressor_id === supply.stressor_id && candidates.indexOf(e.claim_id) !== -1;
-      });
-      candidates.forEach(function (cid) {
-        stressorCovered[supply.stressor_id + ">>" + cid] = true;
-      });
-      if (hit) {
-        stressorEdgeList.push({ stressor: supply.stressor_id, claim: hit.claim_id, status: "correct" });
-      } else if (candidates.length) {
-        // Not satisfied -- show the required target(s) as missing so it's
-        // clear which claim(s) would have made this pass.
-        candidates.forEach(function (cid) {
-          stressorEdgeList.push({ stressor: supply.stressor_id, claim: cid, status: "missing" });
-        });
+  document.getElementById("demo-reference-btn").addEventListener("click", function () {
+    state.inputs = DEMO_INPUTS;
+    state.kind = "reference";
+    state.data = {
+      expected: {
+        duplicates: [["C-001", "C-002"]],
+        must_not_merge: [],
+        causes: [],
+        is_subset_of: [],
+        must_not_link: [["C-002", "C-003"]],
+        stressor_supplies: [{ stressor_id: "stressor:cold-ambient", claim_id_any_of: ["C-001", "C-002"] }]
       }
+    };
+    setStatus("Loaded demo reference");
+    render();
+  });
+
+  // ---- build a plain (non-diffed) edge list from whichever dataset this page has ----
+
+  function edgesFromOutput(data) {
+    var meta = (data && data.meta_claims) || [];
+    var stressorEdges = (data && data.stressor_edges) || [];
+    var edges = meta.map(function (m) {
+      return {
+        a: m.claim_a_id, b: m.claim_b_id, rel: m.relationship,
+        directed: m.relationship !== "duplicates", kind: "relationship",
+        tooltip: m.statement || m.reasoning || m.relationship
+      };
     });
     stressorEdges.forEach(function (e) {
-      var k = e.stressor_id + ">>" + e.claim_id;
-      if (!stressorCovered[k]) stressorEdgeList.push({ stressor: e.stressor_id, claim: e.claim_id, status: "extra" });
+      edges.push({
+        a: e.stressor_id, b: e.claim_id, rel: "supplies", directed: true, kind: "relationship",
+        tooltip: (e.satisfies_conditions || []).join("; ") || "supplies"
+      });
     });
+    return edges;
+  }
 
-    return { edges: edges, stressorEdgeList: stressorEdgeList };
+  function edgesFromReference(data) {
+    var expected = (data && data.expected) || {};
+    var edges = [];
+    (expected.duplicates || []).forEach(function (pair) {
+      edges.push({ a: pair[0], b: pair[1], rel: "duplicates", directed: false, kind: "relationship", tooltip: "duplicates" });
+    });
+    (expected.causes || []).forEach(function (rel) {
+      edges.push({ a: rel.claim_a_id, b: rel.claim_b_id, rel: "causes", directed: true, kind: "relationship", tooltip: "causes" });
+    });
+    (expected.is_subset_of || []).forEach(function (rel) {
+      edges.push({ a: rel.claim_a_id, b: rel.claim_b_id, rel: "is_subset_of", directed: true, kind: "relationship", tooltip: "is_subset_of" });
+    });
+    (expected.must_not_merge || []).forEach(function (pair) {
+      edges.push({ a: pair[0], b: pair[1], rel: "must_not_merge", directed: false, kind: "constraint", tooltip: "must NOT be merged as duplicates" });
+    });
+    (expected.must_not_link || []).forEach(function (pair) {
+      edges.push({ a: pair[0], b: pair[1], rel: "must_not_link", directed: false, kind: "constraint", tooltip: "must NOT be linked at all" });
+    });
+    (expected.stressor_supplies || []).forEach(function (supply) {
+      (supply.claim_id_any_of || []).forEach(function (cid) {
+        edges.push({ a: supply.stressor_id, b: cid, rel: "supplies (any of)", directed: true, kind: "relationship", tooltip: "any one of these claims must be supplied" });
+      });
+    });
+    return edges;
   }
 
   // ---- rendering ----
@@ -250,8 +205,8 @@
     return e;
   }
 
-  var STATUS_COLOR = { correct: "var(--correct)", missing: "var(--missing)", violation: "var(--violation)", extra: "var(--extra)" };
-  var STATUS_DASH = { correct: "none", missing: "6,4", violation: "none", extra: "3,3" };
+  var REL_COLOR = "#2563eb";   // positive relationship edge
+  var CONSTRAINT_COLOR = "#6b7280"; // "must not" constraint edge
 
   function render() {
     var svg = document.getElementById("graph");
@@ -260,32 +215,34 @@
     var width = +svg.getAttribute("width");
     var height = +svg.getAttribute("height");
 
-    // Arrowhead marker defs, one per status color (SVG markers can't use CSS vars reliably across browsers).
-    var colorMap = { correct: "#22c55e", missing: "#ef4444", violation: "#dc2626", extra: "#9ca3af" };
     var defs = el("defs", {});
-    Object.keys(colorMap).forEach(function (status) {
+    [["rel", REL_COLOR], ["constraint", CONSTRAINT_COLOR]].forEach(function (pair) {
       var marker = el("marker", {
-        id: "arrow-" + status, viewBox: "0 0 10 10", refX: "9", refY: "5",
+        id: "arrow-" + pair[0], viewBox: "0 0 10 10", refX: "9", refY: "5",
         markerWidth: "7", markerHeight: "7", orient: "auto-start-reverse"
       });
-      marker.appendChild(el("path", { d: "M0,0 L10,5 L0,10 z", fill: colorMap[status] }));
+      marker.appendChild(el("path", { d: "M0,0 L10,5 L0,10 z", fill: pair[1] }));
       defs.appendChild(marker);
     });
     svg.appendChild(defs);
 
-    var claims = (received.inputs && received.inputs.claims) || {};
-    var stressors = (received.inputs && received.inputs.stressors) || {};
+    document.getElementById("title").textContent =
+      state.kind === "output" ? "claim-worker relationship graph \u2014 Output (agent's run)" :
+      state.kind === "reference" ? "claim-worker relationship graph \u2014 Reference (answer key)" :
+      "claim-worker relationship graph";
+
+    var claims = (state.inputs && state.inputs.claims) || {};
+    var stressors = (state.inputs && state.inputs.stressors) || {};
     var claimIds = Object.keys(claims);
     var stressorIds = Object.keys(stressors);
 
     if (!claimIds.length) {
       svg.appendChild(el("text", { x: 16, y: 28, "class": "node-label" })).textContent =
-        "No inputs.claims received yet -- click \u201cLoad demo data\u201d or point this page at a real dataset example.";
-      renderSummary({ edges: [], stressorEdgeList: [] });
+        "No inputs.claims received yet -- click a demo button above, or point this page at a real dataset example.";
+      renderSummary([]);
       return;
     }
 
-    // Claims laid out on a circle in the upper region; stressors in a row below.
     var cx = width / 2, cy = height / 2 - 40, r = Math.min(width, height - 160) / 2 - 40;
     var pos = {};
     claimIds.forEach(function (id, i) {
@@ -298,19 +255,15 @@
       pos[id] = { x: sSpacing * (i + 1), y: sy, kind: "stressor" };
     });
 
-    var diff = computeDiff();
+    var edges = state.kind === "output" ? edgesFromOutput(state.data) :
+      state.kind === "reference" ? edgesFromReference(state.data) : [];
 
-    // Draw edges first so nodes render on top.
     var edgeLayer = el("g", {});
     svg.appendChild(edgeLayer);
-    diff.edges.forEach(function (e) {
-      drawEdge(edgeLayer, pos[e.a], pos[e.b], e.status, e.rel, e.directed);
-    });
-    diff.stressorEdgeList.forEach(function (e) {
-      drawEdge(edgeLayer, pos[e.stressor], pos[e.claim], e.status, "supplies", true);
+    edges.forEach(function (e) {
+      drawEdge(edgeLayer, pos[e.a], pos[e.b], e);
     });
 
-    // Nodes.
     var nodeLayer = el("g", {});
     svg.appendChild(nodeLayer);
     claimIds.forEach(function (id) {
@@ -320,26 +273,26 @@
       drawNode(nodeLayer, pos[id], id, stressors[id], "stressor");
     });
 
-    renderSummary(diff);
+    renderSummary(edges);
   }
 
-  function drawEdge(layer, p1, p2, status, rel, directed) {
+  function drawEdge(layer, p1, p2, e) {
     if (!p1 || !p2) return;
-    var color = { correct: "#22c55e", missing: "#ef4444", violation: "#dc2626", extra: "#9ca3af" }[status] || "#9ca3af";
-    var dash = { correct: "none", missing: "6,4", violation: "none", extra: "3,3" }[status] || "none";
+    var color = e.kind === "constraint" ? CONSTRAINT_COLOR : REL_COLOR;
+    var dash = e.kind === "constraint" ? "6,4" : "none";
     var line = el("line", {
       x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y,
-      stroke: color, "stroke-width": status === "violation" ? 3 : 2, "stroke-dasharray": dash
+      stroke: color, "stroke-width": 2, "stroke-dasharray": dash
     });
-    if (directed) line.setAttribute("marker-end", "url(#arrow-" + status + ")");
+    if (e.directed) line.setAttribute("marker-end", "url(#arrow-" + (e.kind === "constraint" ? "constraint" : "rel") + ")");
     var title = el("title", {});
-    title.textContent = rel + " (" + status + "): " + p1.x + "," + p1.y;
+    title.textContent = e.rel + ": " + e.tooltip;
     line.appendChild(title);
     layer.appendChild(line);
 
     var mx = (p1.x + p2.x) / 2, my = (p1.y + p2.y) / 2;
     var label = el("text", { x: mx, y: my, "class": "edge-label", "text-anchor": "middle" });
-    label.textContent = rel;
+    label.textContent = e.rel;
     layer.appendChild(label);
   }
 
@@ -364,17 +317,13 @@
     layer.appendChild(g);
   }
 
-  function renderSummary(diff) {
-    var counts = { correct: 0, missing: 0, violation: 0, extra: 0 };
-    diff.edges.concat(diff.stressorEdgeList).forEach(function (e) {
-      counts[e.status] = (counts[e.status] || 0) + 1;
-    });
+  function renderSummary(edges) {
+    var relCount = edges.filter(function (e) { return e.kind === "relationship"; }).length;
+    var constraintCount = edges.filter(function (e) { return e.kind === "constraint"; }).length;
     var el_ = document.getElementById("summary");
     el_.innerHTML =
-      '<span><span class="dot" style="background:#22c55e"></span>' + counts.correct + " correct</span>" +
-      '<span><span class="dot" style="background:#ef4444"></span>' + counts.missing + " missing</span>" +
-      '<span><span class="dot" style="background:#dc2626"></span>' + counts.violation + " violations</span>" +
-      '<span><span class="dot" style="background:#9ca3af"></span>' + counts.extra + " extra (unscored)</span>";
+      '<span><span class="dot" style="background:' + REL_COLOR + '"></span>' + relCount + " relationship edge(s)</span>" +
+      '<span><span class="dot" style="background:' + CONSTRAINT_COLOR + '"></span>' + constraintCount + " constraint edge(s) (reference only)</span>";
   }
 
   render();
@@ -382,3 +331,4 @@
 </script>
 </body>
 </html>
+
