@@ -69,6 +69,20 @@
     state.kind = msg.type;
     state.data = msg.data;
     if (msg.metadata && msg.metadata.inputs) state.inputs = msg.metadata.inputs;
+
+    // DIAGNOSTIC (temporary): log the raw shape of what actually arrived, so we
+    // can confirm/deny a data-shaping or ID-nesting mismatch between
+    // `data` (the output/reference payload) and `metadata.inputs`
+    // (claims/stressors) without dumping full statement text to the console.
+    console.log("[claim-worker-viz] received " + msg.type + " message:", {
+      dataKeys: msg.data && typeof msg.data === "object" ? Object.keys(msg.data) : msg.data,
+      metadataKeys: msg.metadata && typeof msg.metadata === "object" ? Object.keys(msg.metadata) : msg.metadata,
+      inputClaimIds: state.inputs && state.inputs.claims ? Object.keys(state.inputs.claims) : null,
+      inputStressorIds: state.inputs && state.inputs.stressors ? Object.keys(state.inputs.stressors) : null,
+      rawData: msg.data,
+      rawMetadata: msg.metadata
+    });
+
     setStatus("Received " + msg.type + " message");
     render();
   });
@@ -276,7 +290,16 @@
   }
 
   function drawEdge(layer, p1, p2, e) {
-    if (!p1 || !p2) return;
+    if (!p1 || !p2) {
+      // DIAGNOSTIC (temporary): this is the silent-fail path -- an edge whose
+      // endpoint ID (from `data.expected`/`data.meta_claims`) has no matching
+      // entry in `pos` (built from `metadata.inputs.claims`/`.stressors`).
+      // If this fires, it's an ID/data-shaping mismatch between the two, not
+      // a rendering bug.
+      console.warn("[claim-worker-viz] edge endpoint not found -- " + e.a + " -> " + e.b +
+        " (rel: " + e.rel + "); known node ids:", Object.keys(pos));
+      return;
+    }
     var color = e.kind === "constraint" ? CONSTRAINT_COLOR : REL_COLOR;
     var dash = e.kind === "constraint" ? "6,4" : "none";
     var line = el("line", {
